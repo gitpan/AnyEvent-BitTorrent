@@ -1,0 +1,13 @@
+Build.PL
+Changes
+eg/simple_client.pl
+INSTALL
+lib/AnyEvent/BitTorrent.pm
+LICENSE
+MANIFEST			This list of files
+META.json
+META.yml
+README
+t/000_tests/001_rama.t
+'t/900_data/rama\'s test creator - ia test.torrent'
+TODO
