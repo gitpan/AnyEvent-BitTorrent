@@ -55,10 +55,10 @@
    "provides" : {
       "AnyEvent::BitTorrent" : {
          "file" : "lib/AnyEvent/BitTorrent.pm",
-         "version" : "v0.1.1"
+         "version" : "v0.1.1_1"
       }
    },
-   "release_status" : "stable",
+   "release_status" : "testing",
    "resources" : {
       "bugtracker" : {
          "web" : "http://github.com/sanko/anyevent-bittorrent/issues"
@@ -71,5 +71,5 @@
       },
       "x_ChangeLog" : "http://github.com/sanko/anyevent-bittorrent/commits/"
    },
-   "version" : "v0.1.1"
+   "version" : "v0.1.1_1"
 }

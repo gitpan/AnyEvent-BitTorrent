@@ -1,5 +1,6 @@
 #!perl
 use AnyEvent;
+use Moose;
 use lib '../../lib', '../../../net-bittorrent-protocol/lib';
 use AnyEvent::BitTorrent;
 use Net::BitTorrent::Protocol qw[:all];
@@ -21,9 +22,11 @@ $client = AnyEvent::BitTorrent->new(
     path         => $torrent,
     on_hash_pass => sub {
         pass 'Got piece number ' . pop;
-        $cv->send if '0000000000000001' eq unpack 'b*', $client->wanted;
+        return if '0000000000000001' ne  unpack 'b*', $client->wanted;
+        $client->stop;
+        $cv->send
     },
-    on_hash_fail => sub { diag 'FAIL: ' . pop }
+    on_hash_fail => sub { note 'FAIL: ' . pop }
 );
 
 #
@@ -33,6 +36,6 @@ is $client->infohash, pack('H*', '4005ae91492980463df37ada424966b04ec30c53'),
 is $client->size, 462163, 'size( )';
 is $client->name, "Rama's test creator - IA Test", 'name( )';
 $client->hashcheck();
-diag 'Now, we get to work';
+note 'Now, we get to work';
 $cv->recv;
 done_testing;
