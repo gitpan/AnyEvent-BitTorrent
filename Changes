@@ -1,3 +1,15 @@
+Version 0.1.2 | Early golden time on December 20th, 2011 | afb72191bc
+
+    API Changes/Compatibility Information:
+     * New start( ), stop( ), pause( ), and state( ) methods
+     * New state parameter to new( )
+
+    Resolved Issues/Bug Fixes:
+     * Correct stopped and complete events are sent to tracker when required
+     * Fixed compat on perl 5.010
+     * HTTP trackers function as described in BEP03 and BEP12
+     * Filehandles are cached so we don't reopen files every time we need them
+
 Version 0.1.1 | Early afternoon on December 19th, 2011 | 4de209b886
 
     API Changes/Compatibility Information:

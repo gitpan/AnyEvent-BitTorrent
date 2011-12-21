@@ -1,5 +1,5 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.1_01' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.2' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
@@ -17,19 +17,10 @@ use Net::BitTorrent::Protocol qw[:all];
 my $block_size = 2**14;
 
 #
-has port => (
-    is      => 'ro',
-    isa     => 'Int',
-    default => 0,
-    writer  => '_set_port',
-
-    #trigger => sub {
-    #    my ($s, $p) = @_;
-    #    return if !$s->_has_socket;
-    #    use Data::Dump;
-    #    ddx \@_;
-    #    die;
-    #}
+has port => (is      => 'ro',
+             isa     => 'Int',
+             default => 0,
+             writer  => '_set_port'
 );
 has socket => (is        => 'ro',
                isa       => 'Ref',
@@ -43,7 +34,7 @@ sub _build_socket {
     my $s = shift;
     tcp_server undef, $s->port, sub {
         my ($fh, $host, $port) = @_;
-        warn sprintf 'New Peer!!!! %s:%d', $host, $port;
+        return $fh->destroy if $s->state eq 'stopped';
         my $handle = AnyEvent::Handle->new(
             fh       => $fh,
             on_error => sub {
@@ -177,15 +168,20 @@ sub _build_files {
     defined $s->metadata->{info}{files} ?
         [
         map {
-            {
-                length   => $_->{length},
-                    path => File::Spec->rel2abs(
-                    File::Spec->catfile($s->basedir, $s->name, @{$_->{path}}))
+            {fh     => undef,
+             mode   => 'c',
+             length => $_->{length},
+             path =>
+                 File::Spec->rel2abs(
+                     File::Spec->catfile($s->basedir, $s->name, @{$_->{path}})
+                 )
             }
             } @{$s->metadata->{info}{files}}
         ]
         : [
-          {length => $s->metadata->{info}{length},
+          {fh     => undef,
+           mode   => 'c',
+           length => $s->metadata->{info}{length},
            path =>
                File::Spec->rel2abs(File::Spec->catfile($s->basedir, $s->name))
           }
@@ -197,6 +193,38 @@ sub size {
     my $ret = 0;
     $ret += $_->{length} for @{$s->files};
     $ret;
+}
+
+sub _open {
+    my ($s, $i, $m) = @_;
+    return 1 if $s->files->[$i]->{mode} eq $m;
+    if (defined $s->files->[$i]->{fh}) {
+        flock $s->files->[$i]->{fh}, LOCK_UN;
+        close $s->files->[$i]->{fh};
+        $s->files->[$i]->{fh} = ();
+    }
+    if ($m eq 'r') {
+        sysopen($s->files->[$i]->{fh}, $s->files->[$i]->{path}, O_RDONLY)
+            || return;
+        flock($s->files->[$i]->{fh}, LOCK_SH) || return;
+    }
+    elsif ($m eq 'w') {
+        my @split = File::Spec->splitdir($s->files->[$i]->{path});
+        pop @split;    # File name itself
+        my $dir = File::Spec->catdir(@split);
+        File::Path::mkpath($dir) if !-d $dir;
+        sysopen($s->files->[$i]->{fh},
+                $s->files->[$i]->{path},
+                O_WRONLY | O_CREAT)
+            || return;
+        flock $s->files->[$i]->{fh}, LOCK_EX;
+        truncate $s->files->[$i]->{fh}, $s->files->[$i]->{length}
+            if -s $s->files->[$i]->{fh}
+                != $s->files->[$i]->{length};    # XXX - pre-allocate files
+    }
+    elsif ($m eq 'c') { }
+    else              {return}
+    return $s->files->[$i]->{mode} = $m;
 }
 
 sub _read {
@@ -220,18 +248,13 @@ READ: while ((defined $length) && ($length > 0)) {
             : $length;
 
         # XXX - Keep file open for a while
-        if ((!-f $s->files->[$file_index]->{path})
-            || (!sysopen(my ($fh), $s->files->[$file_index]->{path}, O_RDONLY)
-            )
-            )
+        if (   (!-f $s->files->[$file_index]->{path})
+            || (!$s->_open($file_index, 'r')))
         {   $data .= "\0" x $this_read;
         }
         else {
-            flock $fh, LOCK_SH;
-            sysseek $fh, $total_offset, SEEK_SET;
-            sysread $fh, my ($_data), $this_read;
-            flock $fh, LOCK_UN;
-            close $fh;
+            sysseek $s->files->[$file_index]->{fh}, $total_offset, SEEK_SET;
+            sysread $s->files->[$file_index]->{fh}, my ($_data), $this_read;
             $data .= $_data if $_data;
         }
         $file_index++;
@@ -260,22 +283,10 @@ WRITE: while ((defined $data) && (length $data > 0)) {
             ?
             ($s->files->[$file_index]->{length} - $total_offset)
             : length $data;
-        my @split = File::Spec->splitdir($s->files->[$file_index]->{path});
-        pop @split;    # File name itself
-        my $dir = File::Spec->catdir(@split);
-        File::Path::mkpath($dir) if !-d $dir;
-        sysopen(my ($fh),                           # XXX - Keep the file open
-                $s->files->[$file_index]->{path},
-                O_WRONLY | O_CREAT
-        ) or return;
-        flock $fh, LOCK_EX;
-        truncate $fh, $s->files->[$file_index]->{length}
-            if -s $fh != $s->files->[$file_index]
-                ->{length};                     # XXX - pre-allocate files
-        sysseek $fh, $total_offset, SEEK_SET;
-        my $w = syswrite $fh, substr $data, 0, $this_write, '';
-        flock $fh, LOCK_UN;
-        close $fh;
+        $s->_open($file_index, 'w') || die $!;
+        sysseek $s->files->[$file_index]->{fh}, $total_offset, SEEK_SET;
+        my $w = syswrite $s->files->[$file_index]->{fh}, substr $data, 0,
+            $this_write, '';
         $file_index++;
         last WRITE if not defined $s->files->[$file_index];
         $total_offset = 0;
@@ -359,80 +370,110 @@ sub _del_peer {
     delete $s->peers->{$h};
     $h->destroy;
 }
-has peer_cache => (is      => 'ro',
-                   isa     => 'Str',
-                   writer  => '_set_peer_cache',
-                   default => '',
-                   lazy    => 1
-);
+my $shuffle;
 has trackers => (
     is       => 'ro',
-    isa      => 'ArrayRef[ArrayRef[Str]]',
+    isa      => 'ArrayRef[HashRef]',
     lazy     => 1,
     required => 1,
     init_arg => undef,
     default  => sub {
         my $s = shift;
-        [defined $s->metadata->{'announce-list'}
-         ? @{$s->metadata->{'announce-list'}}
-         : (),
-         [defined $s->metadata->{announce} ? $s->metadata->{announce}
-          : ()
-         ]
+        $shuffle ||= sub {
+            my $deck = shift;    # $deck is a reference to an array
+            return unless @$deck;    # must not be empty!
+            my $i = @$deck;
+            while (--$i) {
+                my $j = int rand($i + 1);
+                @$deck[$i, $j] = @$deck[$j, $i];
+            }
+        };
+        my $trackers = [
+            map {
+                {urls       => $_,
+                 complete   => 0,
+                 incomplete => 0,
+                 peers      => '',
+                 ticker     => AE::timer(
+                     1,
+                     15 * 60,
+                     sub {
+                         return if $s->state eq 'stopped';
+                         $s->announce('started');
+                     }
+                 )
+                }
+                } defined $s->metadata->{announce}
+            ? [$s->metadata->{announce}]
+            : (),
+            defined $s->metadata->{'announce-list'}
+            ? @{$s->metadata->{'announce-list'}}
+            : ()
         ];
+        $shuffle->($trackers);
+        $shuffle->($_->{urls}) for @$trackers;
+        $trackers;
     }
 );
-
-# Timers
-has _tracker_timer => (is       => 'ro',
-                       isa      => 'Ref',
-                       init_arg => undef,
-                       lazy     => 1,
-                       clearer  => '_clear_tracker_timer',
-                       builder  => '_build_tracker_timer'
-);
-
-sub _build_tracker_timer {
-    my $s = shift;
-    AE::timer(1, 15 * 60, sub { $s->announce() });
-}
 
 sub announce {
     my ($s, $e) = @_;
+    return if $a++ > 10;    # Retry attempts
     for my $tier (@{$s->trackers}) {
+        $s->_announce_tier($e, $tier);
+    }
+}
 
-        #ddx $tier;
-        next if $tier->[0] !~ m[^https?://.+];
-        http_get $tier->[0] . '?info_hash=' . sub {
-            local $_ = shift;
-            s/([\W])/"%" . uc(sprintf("%2.2x",ord($1)))/eg;
-            $_;
+sub _announce_tier {
+    my ($s, $e, $tier) = @_;
+    my @urls = grep {m[^https?://]} @{$tier->{urls}};
+    next if $tier->{urls}[0] !~ m[^https?://.+];
+    http_get $tier->{urls}[0] . '?info_hash=' . sub {
+        local $_ = shift;
+        s/([\W])/"%" . uc(sprintf("%2.2x",ord($1)))/eg;
+        $_;
+        }
+        ->($s->infohash)
+        . ('&peer_id=' . $s->peerid)
+        . ('&uploaded=' . $s->uploaded)
+        . ('&downloaded=' . $s->downloaded)
+        . ('&left=' . $s->_left)
+        . ('&port=' . $s->port)
+        . '&compact=1'
+        . ($e ? '&event=' . $e : ''), sub {
+        my ($body, $hdr) = @_;
+        if ($hdr->{Status} =~ /^2/) {
+            my $reply = bdecode($body);
+            if (defined $reply->{'failure reason'}) {    # XXX - Callback?
+                push @{$tier->{urls}}, shift @{$tier->{urls}};
+                $s->_announce_tier($e, $tier);
+                $tier->{'failure reason'} = $reply->{'failure reason'};
+                $tier->{failures}++;
             }
-            ->($s->infohash)
-            . ('&peer_id=' . $s->peerid)
-            . ('&uploaded=' . $s->uploaded)
-            . ('&downloaded=' . $s->downloaded)
-            . ('&left=' . $s->_left)
-            . ('&port=' . $s->port)
-            . '&compact=1'
-            . ($e ? '&event=' . $e : ''), sub {
-
-            #use Data::Dump;
-            #ddx \@_;
-            my ($body, $hdr) = @_;
-            if ($hdr->{Status} =~ /^2/) {
-                my $reply = bdecode($body);
-                $s->_set_peer_cache(
-                          compact_ipv4(
-                              uncompact_ipv4($s->peer_cache . $reply->{peers})
-                          )
+            else {                                       # XXX - Callback?
+                $tier->{failures} = $tier->{'failure reason'} = 0;
+                $tier->{peers} = compact_ipv4(
+                            uncompact_ipv4($tier->{peers} . $reply->{peers}));
+                $tier->{complete}   = $reply->{complete};
+                $tier->{incomplete} = $reply->{incomplete};
+                $tier->{ticker} = AE::timer(
+                    $reply->{interval} // (15 * 60),
+                    $reply->{interval} // (15 * 60),
+                    sub {
+                        return if $s->state eq 'stopped';
+                        $s->_announce_tier($e, $tier);
+                    }
                 );
             }
-            else {
-                print "error, $hdr->{Status} $hdr->{Reason}\n";
-            }
-            }
-    }
+        }
+        else {    # XXX - Callback?
+            $tier->{'failure reason'}
+                = "HTTP Error: $hdr->{Status} $hdr->{Reason}\n";
+            $tier->{failures}++;
+            push @{$tier->{urls}}, shift @{$tier->{urls}};
+            $s->_announce_tier($e, $tier);
+        }
+        }
 }
 has _choke_timer => (
     is       => 'bare',
@@ -444,6 +485,7 @@ has _choke_timer => (
         AE::timer(
             10, 40,
             sub {
+                return if $s->state ne 'active';
                 my @interested
                     = grep { $_->{remote_interested} && $_->{remote_choked} }
                     values %{$s->peers};
@@ -469,6 +511,7 @@ has _fill_requests_timer => (
         AE::timer(
             15, 1,
             sub {    # XXX - Limit by time/bandwidth
+                return if $s->state ne 'active';
                 my @waiting = grep { scalar @{$_->{remote_requests}} }
                     values %{$s->peers};
                 return if !@waiting;
@@ -514,7 +557,8 @@ sub _build_peer_timer {
             return if !$s->_left;
 
             # XXX - Initiate connections when we are in Super seed mode?
-            my @cache = uncompact_ipv4($s->peer_cache);
+            my @cache = uncompact_ipv4(join '',
+                                       map { $_->{peers} } @{$s->trackers});
             return if !@cache;
             for my $i (1 .. @cache) {
                 last if $i > 10;    # XXX - Max half open
@@ -691,10 +735,18 @@ sub _on_read {
                     sort { $a <=> $b }
                     keys %{$s->working_pieces->{$index}};
                 if ((substr($s->pieces, $index * 20, 20) eq sha1($piece))) {
-                    $s->_write($index, 0, $piece);
-                    $s->hashcheck($index);    # XXX - Verify write
+                    for my $attempt (1 .. 5) {   # XXX = 5 == failure callback
+                        last
+                            if $s->_write($index, 0, $piece) == length $piece;
+                    }
+                    vec($s->{bitfield}, $index, 1) = 1;
+                    $s->_trigger_hash_pass($index);
                     $s->_broadcast(build_have($index))
                         ;    # XXX - only broadcast to non-seeds
+                    $s->announce('complete')
+                        if !scalar grep {$_} split '',
+                        substr unpack('b*', ~$s->bitfield), 0,
+                        $s->piece_count + 1;
                     $s->_consider_peer($_)
                         for grep { $_->{local_interested} }
                         values %{$s->peers};
@@ -745,6 +797,7 @@ sub _broadcast {
 
 sub _consider_peer {    # Figure out whether or not we find a peer interesting
     my ($s, $p) = @_;
+    return if $s->state ne 'active';
     my $relevence = unpack('b*', $p->{bitfield}) & unpack('b*', $s->wanted);
     my $interesting = (index(unpack('b*', $relevence), 1, 0) != -1) ? 1 : 0;
     if ($interesting) {
@@ -769,6 +822,7 @@ has working_pieces => (is       => 'ro',
 
 sub _request_pieces {
     my ($s, $p) = @_;
+    return if $s->state ne 'active';
     use Scalar::Util qw[weaken];
     weaken $p;
     $p // return;
@@ -864,25 +918,42 @@ has on_hash_fail => (
 sub _trigger_hash_fail { shift->on_hash_fail()->(@_) }
 
 #
+has state => (is      => 'ro',
+              isa     => enum([qw[active stopped paused]]),
+              writer  => '_set_state',
+              default => 'active'
+);
+
 sub stop {
     my $s = shift;
+    return if $s->state eq 'stopped';
     $s->announce('stopped');
     $s->_clear_peers;
     $s->_clear_peer_timer;
-    $s->_clear_tracker_timer;
+    $s->_open($_, 'c') for 0 .. $#{$s->files};
+    $s->_set_state('stopped');
 }
 
 sub start {
     my $s = shift;
-    $s->announce('started');
+    $s->announce('started') unless $s->state eq 'active';
     $s->peers;
     $s->_peer_timer;
-    $s->_tracker_timer;
+    $s->_set_state('active');
 }
+
+sub pause {
+    my $s = shift;
+    $s->peers;
+    $s->_peer_timer;
+    $s->_set_state('paused');
+}
+
 #
 sub BUILD {
     my ($s, $a) = @_;
-    $s->start unless defined $a->{start} && $a->{start} == 0;
+    $s->start  if $s->state eq 'active';
+    $s->paused if $s->state eq 'paused';
 }
 
 #
@@ -914,9 +985,11 @@ the section entitled "L<This Module is Lame!|/"This Module is Lame!">"
 
 The API, much like the module itself, is simple.
 
-=over
+Anything you find by skimming the source is likely not ready for public use
+and will be subject to change before C<v1.0.0>. Here's the public interface as
+of this version:
 
-=item C<new( ... )>
+=head2 C<new( ... )>
 
 This constructor understands the following arguments:
 
@@ -952,9 +1025,34 @@ L<hashcheck|/"hashcheck( [...] )">. The callback is handed the piece's index.
 This is a subroutine called whenever a piece passes its
 L<hashcheck|/"hashcheck( [...] )">. The callback is handed the piece's index.
 
+=item C<state>
+
+This must be one of the following:
+
+=over
+
+=item C<started>
+
+This is the default. The client will attempt to create new connections, make
+and fill requests, etc. This is normal client behavior.
+
+=item C<paused>
+
+In this state, connections will be made and accepted but no piece requests
+will be made or filled. To resume full, normal behavior, you must call
+L<C<start( )>|/"start( )">.
+
+=item C<stopped>
+
+Everything is put on hold. No new outgoing connections are attempted and
+incoming connections are rejected. To resume full, normal behavior, you must
+call L<C<start( )>|/"start( )">.
+
 =back
 
-=item C<hashcheck( [...] )>
+=back
+
+=head2 C<hashcheck( [...] )>
 
 This method expects...
 
@@ -978,28 +1076,38 @@ single file, for example).
 As pieces pass or fail, your C<on_hash_pass> and C<on_hash_fail> callbacks are
 triggered.
 
-=back
+=head2 C<start( )>
 
-In addition to these, there are several informational methods which do not
-trigger or modify any activity:
+Sends a 'started' event to trackers and starts performing as a client is
+expected. New connections are made and accepted, requests are made and filled,
+etc.
 
-=over
+=head2 C<stop( )>
 
-=item C<infohash( )>
+Sends a stopped event to trackers, closes all connections, stops attempting
+new outgoing connections, rejects incoming connections and closes all open
+files.
+
+=head2 C<pause( )>
+
+The client remains mostly active; new connections will be made and accepted,
+etc. but no requests will be made or filled while the client is paused.
+
+=head2 C<infohash( )>
 
 Returns the 20-byte SHA1 hash of the value of the info key from the metadata
 file.
 
-=item C<peerid( )>
+=head2 C<peerid( )>
 
 Returns the 20 byte string used to identify the client. Please see the
-L<spec|/"Peer ID Specification"> below.
+L<spec|/"PeerID Specification"> below.
 
-=item C<port( )>
+=head2 C<port( )>
 
 Returns the port number the client is listening on.
 
-=item C<size( )>
+=head2 C<size( )>
 
 Returns the total size of all L<files|/"files( )"> described in the torrent's
 metadata.
@@ -1007,36 +1115,36 @@ metadata.
 Note that this value is recalculated every time you call this method. If you
 need it more than occasionally, it may be best to cache it yourself.
 
-=item C<name( )>
+=head2 C<name( )>
 
 Returns the UTF-8 encoded string the metadata suggests we save the file (or
 directory, in the case of multi-file torrents) under.
 
-=item C<uploaded( )>
+=head2 C<uploaded( )>
 
 Returns the total amount uploaded to remote peers.
 
-=item C<downloaded( )>
+=head2 C<downloaded( )>
 
 Returns the total amount downloaded from other peers.
 
-=item C<left( )>
+=head2 C<left( )>
 
 Returns the approximate amount based on the pieces we still
 L<want|/"wanted( )"> multiplied by the L<size of pieces|/"piece_length( )">.
 
-=item C<piece_length( )>
+=head2 C<piece_length( )>
 
 Returns the number of bytes in each piece the file or files are split into.
 For the purposes of transfer, files are split into fixed-size pieces which are
 all the same length except for possibly the last one which may be truncated.
 
-=item C<bitfield( )>
+=head2 C<bitfield( )>
 
 Returns a packed binary string in ascending order (ready for C<vec()>). Each
 index that the client has is set to one and the rest are set to zero.
 
-=item C<wanted( )>
+=head2 C<wanted( )>
 
 Returns a packed binary string in ascending order (ready for C<vec()>). Each
 index that the client has or simply does not want is set to zero and the rest
@@ -1046,7 +1154,7 @@ Currently, this is just C<< ~ $client->bitfield( ) >> but if your subclass has
 file based priorities, you could only 'want' the pieces which lie inside of
 the files you want.
 
-=item C<files( )>
+=head2 C<files( )>
 
 Returns a list of hash references with the following keys:
 
@@ -1062,16 +1170,17 @@ Which is the absolute path of the file.
 
 =back
 
-=item C<peers( )>
+=head2 C<peers( )>
 
 Returns the list of currently connected peers. The organization of these peers
 is not yet final so... don't write anything you don't expect to break before
 we hit C<v1.0.0>.
 
-=back
+=head2 C<state( )>
 
-Anything you find by skimming the source is likely not ready for public use
-and will be subject to change before C<v1.0.0>.
+Returns C<active> if the client is L<started|/"start( )">, C<paused> if client
+is L<paused|/"pause( )">, and C<stopped> if the client is currently
+L<stopped|/"stop( )">.
 
 =head1 This Module is Lame!
 
@@ -1091,12 +1200,12 @@ supported but do not perform according to spec yet.
 
 =head2 What will probably be supported in the future?
 
-DHT (which will likely be in a separate dist), fast extensions, multi-tracker
-extensions, IPv6 stuff, file download priorities... I'll get around to those.
+DHT (which will likely be in a separate dist), fast extensions, IPv6 stuff,
+file download priorities... I'll get around to those.
 
 Long term, UDP trackers may be supported.
 
-For a detailed list, see the ToDo file included with this distribution.
+For a detailed list, see the TODO file included with this distribution.
 
 =head2 What will likely never be supported?
 

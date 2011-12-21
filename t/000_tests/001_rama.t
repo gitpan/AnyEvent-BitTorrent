@@ -1,6 +1,5 @@
 #!perl
 use AnyEvent;
-use Moose;
 use lib '../../lib', '../../../net-bittorrent-protocol/lib';
 use AnyEvent::BitTorrent;
 use Net::BitTorrent::Protocol qw[:all];
@@ -8,9 +7,7 @@ use Test::More;
 use File::Temp;
 $|++;
 my $torrent = q[t/900_data/rama's test creator - ia test.torrent];
-my $basedir = File::Temp::tempdir('AB_XXXX', CLEANUP => 1, TMPDIR => 1);
-
-#chmod 0777, $basedir; # Hate me
+my $basedir = File::Temp::tempdir('AB_XXXX', TMPDIR => 1);
 chdir '../..' if !-f $torrent;
 my $cv = AE::cv;
 my $to = AE::timer(60, 0, sub { diag 'Timeout'; $cv->send });
@@ -22,9 +19,11 @@ $client = AnyEvent::BitTorrent->new(
     path         => $torrent,
     on_hash_pass => sub {
         pass 'Got piece number ' . pop;
-        return if '0000000000000001' ne  unpack 'b*', $client->wanted;
+        return
+            if scalar grep {$_} split '',
+            substr unpack('b*', $client->wanted), 0, $client->piece_count + 1;
         $client->stop;
-        $cv->send
+        $cv->send;
     },
     on_hash_fail => sub { note 'FAIL: ' . pop }
 );
