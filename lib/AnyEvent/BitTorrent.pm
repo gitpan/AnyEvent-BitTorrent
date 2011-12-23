@@ -1,12 +1,12 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.2' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.2_1' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
 use AnyEvent::HTTP;
 use Any::Moose;
 use Any::Moose '::Util::TypeConstraints';
-use Fcntl qw[SEEK_SET /O_/ :flock];
+use Fcntl qw[/SEEK_/ /O_/ :flock];
 use Digest::SHA qw[sha1];
 use File::Spec;
 use File::Path;
@@ -78,13 +78,14 @@ has peerid => (
         pack(
             'a20',
             (sprintf(
-                 '-AB%02d%02d-%7s%-5s',
+                 '-AB%01d%02d%1s-%7s%-5s',
                  ($AnyEvent::BitTorrent::VERSION =~ m[^v(\d+)\.(\d+)]),
-                 (  join '',
-                    map {
-                        ['A' .. 'Z', 'a' .. 'z', 0 .. 9, qw[- . _ ~]]
-                        ->[rand(66)]
-                        } 1 .. 7
+                 ($AnyEvent::BitTorrent::VERSION =~ m[\_] ? 'U' : 'S'),
+                 (join '',
+                  map {
+                      ['A' .. 'Z', 'a' .. 'z', 0 .. 9, qw[- . _ ~]]
+                      ->[rand(66)]
+                      } 1 .. 7
                  ),
                  [qw[KaiLi April]]->[rand 2]
              )
@@ -98,7 +99,30 @@ has bitfield => (is         => 'ro',
                  lazy_build => 1
 );
 sub _build_bitfield { pack 'b*', "\0" x shift->piece_count }
-sub wanted { ~shift->bitfield }
+
+sub wanted {
+    my $s      = shift;
+    my $wanted = '';
+    for my $findex (0 .. $#{$s->files}) {
+        my $prio = !!$s->files->[$findex]{priority};
+        for my $index ($s->_file_to_range($findex)) {
+            vec($wanted, $index, 1) = $prio && !vec($s->bitfield, $index, 1);
+        }
+    }
+    $wanted;
+}
+
+sub complete {
+    my $s = shift;
+    return !scalar grep {$_} split '',
+        substr unpack('b*', $s->wanted), 0, $s->piece_count + 1;
+}
+
+sub seed {
+    my $s = shift;
+    return scalar grep {$_} split '',
+        substr unpack('b*', ~$s->bitfield), 0, $s->piece_count + 1;
+}
 
 sub _left {
     my $s = shift;
@@ -168,9 +192,10 @@ sub _build_files {
     defined $s->metadata->{info}{files} ?
         [
         map {
-            {fh     => undef,
-             mode   => 'c',
-             length => $_->{length},
+            {priority => 1,
+             fh       => undef,
+             mode     => 'c',
+             length   => $_->{length},
              path =>
                  File::Spec->rel2abs(
                      File::Spec->catfile($s->basedir, $s->name, @{$_->{path}})
@@ -179,9 +204,10 @@ sub _build_files {
             } @{$s->metadata->{info}{files}}
         ]
         : [
-          {fh     => undef,
-           mode   => 'c',
-           length => $s->metadata->{info}{length},
+          {priority => 1,
+           fh       => undef,
+           mode     => 'c',
+           length   => $s->metadata->{info}{length},
            path =>
                File::Spec->rel2abs(File::Spec->catfile($s->basedir, $s->name))
           }
@@ -226,6 +252,54 @@ sub _open {
     else              {return}
     return $s->files->[$i]->{mode} = $m;
 }
+has piece_cache => (is => 'ro', isa => 'HashRef', default => sub { {} });
+
+sub _write_cache {
+    my ($s, $f, $o, $d) = @_;
+    my $path =
+        File::Spec->catfile($s->basedir,
+                            (scalar @{$s->files} == 1 ? () : $s->name),
+                            '~ABPartFile_-'
+                                . uc(
+                                    substr(unpack('H*', $s->infohash), 0, 10))
+                                . '.dat'
+        );
+    my @split = File::Spec->splitdir($path);
+    pop @split;    # File name itself
+    my $dir = File::Spec->catdir(@split);
+    File::Path::mkpath($dir) if !-d $dir;
+    sysopen(my ($fh), $path, O_WRONLY | O_CREAT)
+        || return;
+    flock $fh, LOCK_EX;
+    my $pos = sysseek $fh, 0, SEEK_CUR;
+    my $w = syswrite $fh, $d;
+    flock $fh, LOCK_UN;
+    close $fh;
+    $s->piece_cache->{$f}{$o} = $pos;
+    return $w;
+}
+
+sub _read_cache {
+    my ($s, $f, $o, $l) = @_;
+    $s->piece_cache->{$f} // return;
+    $s->piece_cache->{$f}{$o} // return;
+    my $path =
+        File::Spec->catfile($s->basedir,
+                            (scalar @{$s->files} == 1 ? () : $s->name),
+                            '~ABPartFile_-'
+                                . uc(
+                                    substr(unpack('H*', $s->infohash), 0, 10))
+                                . '.dat'
+        );
+    sysopen(my ($fh), $path, O_RDONLY)
+        || return;
+    flock $fh, LOCK_SH;
+    sysseek $fh, $s->piece_cache->{$f}{$o}, SEEK_SET;
+    my $w = sysread $fh, my ($d), $l;
+    flock $fh, LOCK_UN;
+    close $fh;
+    return $d;
+}
 
 sub _read {
     my ($s, $index, $offset, $length) = @_;
@@ -246,11 +320,10 @@ READ: while ((defined $length) && ($length > 0)) {
             ?
             ($s->files->[$file_index]->{length} - $total_offset)
             : $length;
-
-        # XXX - Keep file open for a while
         if (   (!-f $s->files->[$file_index]->{path})
             || (!$s->_open($file_index, 'r')))
-        {   $data .= "\0" x $this_read;
+        {   $data .= $s->_read_cache($file_index, $total_offset, $this_read)
+                // ("\0" x $this_read);
         }
         else {
             sysseek $s->files->[$file_index]->{fh}, $total_offset, SEEK_SET;
@@ -283,10 +356,16 @@ WRITE: while ((defined $data) && (length $data > 0)) {
             ?
             ($s->files->[$file_index]->{length} - $total_offset)
             : length $data;
-        $s->_open($file_index, 'w') || die $!;
-        sysseek $s->files->[$file_index]->{fh}, $total_offset, SEEK_SET;
-        my $w = syswrite $s->files->[$file_index]->{fh}, substr $data, 0,
-            $this_write, '';
+        if ($s->files->[$file_index]->{priority} == 0) {
+            $s->_write_cache($file_index, $total_offset, substr $data, 0,
+                             $this_write, '');
+        }
+        else {
+            $s->_open($file_index, 'w') || die $!;
+            sysseek $s->files->[$file_index]->{fh}, $total_offset, SEEK_SET;
+            my $w = syswrite $s->files->[$file_index]->{fh}, substr $data, 0,
+                $this_write, '';
+        }
         $file_index++;
         last WRITE if not defined $s->files->[$file_index];
         $total_offset = 0;
@@ -428,6 +507,8 @@ sub _announce_tier {
     my ($s, $e, $tier) = @_;
     my @urls = grep {m[^https?://]} @{$tier->{urls}};
     next if $tier->{urls}[0] !~ m[^https?://.+];
+    local $AnyEvent::HTTP::USERAGENT
+        = 'AnyEvent::BitTorrent/' . $AnyEvent::BitTorrent::VERSION;
     http_get $tier->{urls}[0] . '?info_hash=' . sub {
         local $_ = shift;
         s/([\W])/"%" . uc(sprintf("%2.2x",ord($1)))/eg;
@@ -512,7 +593,7 @@ has _fill_requests_timer => (
             15, 1,
             sub {    # XXX - Limit by time/bandwidth
                 return if $s->state ne 'active';
-                my @waiting = grep { scalar @{$_->{remote_requests}} }
+                my @waiting = grep { scalar @{$_->{remote_requests} // []} }
                     values %{$s->peers};
                 return if !@waiting;
                 my $p          = $waiting[rand $#waiting];
@@ -617,6 +698,7 @@ sub _on_read_incoming {
         return $s->_del_peer($h);
     }
     elsif ($packet->{type} == $HANDSHAKE) {
+        ref $packet->{payload} // return;
         $s->peers->{$h}{reserved} = $packet->{payload}[0];
         return $s->_del_peer($h)
             if $packet->{payload}[1] ne $s->infohash;
@@ -649,8 +731,7 @@ sub _on_read {
             # Do nothing!
         }
         elsif ($packet->{type} == $HANDSHAKE) {
-
-            #ref $packet->{payload} // ddx $packet;
+            ref $packet->{payload} // return;
             $s->peers->{$h}{reserved} = $packet->{payload}[0];
             return $s->_del_peer($h)
                 if $packet->{payload}[1] ne $s->infohash;
@@ -741,8 +822,14 @@ sub _on_read {
                     }
                     vec($s->{bitfield}, $index, 1) = 1;
                     $s->_trigger_hash_pass($index);
-                    $s->_broadcast(build_have($index))
-                        ;    # XXX - only broadcast to non-seeds
+                    $s->_broadcast(
+                        build_have($index),
+                        sub {
+                            !scalar grep {$_} split '',
+                                substr unpack('b*', ~$_->{bitfield}), 0,
+                                $s->piece_count + 1;
+                        }
+                    );
                     $s->announce('complete')
                         if !scalar grep {$_} split '',
                         substr unpack('b*', ~$s->bitfield), 0,
@@ -791,8 +878,10 @@ sub _on_read {
 }
 
 sub _broadcast {
-    my ($s, $data) = @_;
-    $_->{handle}->push_write($data) for values %{$s->peers};
+    my ($s, $data, $qualifier) = @_;
+    $qualifier //= sub {1};
+    $_->{handle}->push_write($data)
+        for grep { $qualifier->() } values %{$s->peers};
 }
 
 sub _consider_peer {    # Figure out whether or not we find a peer interesting
@@ -820,19 +909,38 @@ has working_pieces => (is       => 'ro',
                        default  => sub { {} }
 );
 
+sub _file_to_range {
+    my ($s, $file) = @_;
+    my $start = 0;
+    for (0 .. $file - 1) {
+        $start += $s->files->[$_]->{length};
+    }
+    my $end = $start + $s->files->[$file]->{length};
+    $start = $start / $s->piece_length;
+    $end   = $end / $s->piece_length;
+    (int($start) .. int $end + ($end != int($end) ? 0 : +1));
+}
+
 sub _request_pieces {
     my ($s, $p) = @_;
     return if $s->state ne 'active';
     use Scalar::Util qw[weaken];
     weaken $p;
     $p // return;
-    my $relevence = unpack('b*', $p->{bitfield}) & unpack('b*', $s->wanted);
-
-    #use Data::Dump;
+    $p->{handle} // return;
     my @indexes;
     if (scalar keys %{$s->working_pieces} < 10) {   # XXX - Max working pieces
-        my $x = -1;
-        @indexes = map { $x++; $_ ? $x : () } split '', $relevence;
+
+        for my $findex (0 .. $#{$s->files}) {
+            for my $index ($s->_file_to_range($findex)) {
+                push @indexes, map {
+                    vec($p->{bitfield}, $index, 1)
+                        && !vec($s->bitfield, $index, 1) ?
+                        $index
+                        : ()
+                } 1 .. $s->{files}[$findex]{priority};
+            }
+        }
     }
     else {
         @indexes = keys %{$s->working_pieces};
@@ -1050,6 +1158,12 @@ call L<C<start( )>|/"start( )">.
 
 =back
 
+=item C<piece_cache>
+
+This is the index returned by L<C<piece_cache( )>|/"piece_cache( )"> in a
+previous instance. Using this should make a complete resume system a trivial
+task.
+
 =back
 
 =head2 C<hashcheck( [...] )>
@@ -1150,9 +1264,16 @@ Returns a packed binary string in ascending order (ready for C<vec()>). Each
 index that the client has or simply does not want is set to zero and the rest
 are set to one.
 
-Currently, this is just C<< ~ $client->bitfield( ) >> but if your subclass has
-file based priorities, you could only 'want' the pieces which lie inside of
-the files you want.
+This value is calculated every time the method is called. Keep that in mind.
+
+=head2 C<complete( )>
+
+Returns true if we have downloaded everything we L<wanted|/"wanted( )"> which
+is not to say that we have all data and can L<seed|/"seed( )">.
+
+=head2 C<seed( )>
+
+Returns true if we have all data related to the torrent.
 
 =head2 C<files( )>
 
@@ -1168,6 +1289,16 @@ Which is the size of file in bytes.
 
 Which is the absolute path of the file.
 
+=item C<priority>
+
+Download priority for this file. By default, all files have a priority of
+C<1>. There is no built in scale; the higher the priority, the better odds a
+piece from it will be downloaded first. Setting a file's priority to C<1000>
+while the rest are still at C<1> will likely force the file to complete before
+any other file is started.
+
+We do not download files with a priority of zero.
+
 =back
 
 =head2 C<peers( )>
@@ -1182,6 +1313,12 @@ Returns C<active> if the client is L<started|/"start( )">, C<paused> if client
 is L<paused|/"pause( )">, and C<stopped> if the client is currently
 L<stopped|/"stop( )">.
 
+=head2 C<piece_cache( )>
+
+Pieces which overlap files with zero priority are stored in a part file which
+is indexed internally. To save this index (for resume, etc.) store the values
+returned by this method and pass it to L<new( )|/"new( )">.
+
 =head1 This Module is Lame!
 
 Yeah, I said it.
@@ -1195,8 +1332,7 @@ subclass it to add more advanced functionality. Hint, hint!
 =head2 What is currently supported?
 
 Basic stuff. We can make and handle piece requests. Deal with cancels,
-disconnect idle peers, unchoke folks. Normal... stuff. HTTP trackers are
-supported but do not perform according to spec yet.
+disconnect idle peers, unchoke folks. Normal... stuff. HTTP trackers.
 
 =head2 What will probably be supported in the future?
 
@@ -1244,12 +1380,13 @@ Thanks.
 =head1 PeerID Specification
 
 L<AnyEvent::BitTorrent> may be identified in a swarm by its peer id. As of
-this version, our peer id looks sorta like:
+this version, our peer id is in 'Azureus style' with a single digit for the
+Major version, two digits for the minor version, and a single character to
+indicate stability (stable releases marked with C<S>, unstable releases marked
+with C<U>). It looks sorta like:
 
-    -AB0110-XXXXXXXXXXXX
-
-Where C<0110> are the Major (C<01>) and minor (C<10>) version numbers and the
-C<X>s are random filler.
+    -AB110S-  Stable v1.10.0 relese (typically found on CPAN, tagged in repo)
+    -AB110U-  Unstable v1.10.X release (private builds, early testing, etc.)
 
 =head1 Bug Reports
 
