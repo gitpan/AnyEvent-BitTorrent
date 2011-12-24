@@ -1,5 +1,5 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.2_1' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.3' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
@@ -114,14 +114,12 @@ sub wanted {
 
 sub complete {
     my $s = shift;
-    return !scalar grep {$_} split '',
-        substr unpack('b*', $s->wanted), 0, $s->piece_count + 1;
+    -1 == index substr(unpack('b*', $s->wanted), 0, $s->piece_count + 1), 1;
 }
 
 sub seed {
     my $s = shift;
-    return scalar grep {$_} split '',
-        substr unpack('b*', ~$s->bitfield), 0, $s->piece_count + 1;
+    -1 == index substr(unpack('b*', $s->bitfield), 0, $s->piece_count + 1), 0;
 }
 
 sub _left {
@@ -480,7 +478,8 @@ has trackers => (
                          return if $s->state eq 'stopped';
                          $s->announce('started');
                      }
-                 )
+                 ),
+                 failures => 0
                 }
                 } defined $s->metadata->{announce}
             ? [$s->metadata->{announce}]
@@ -506,7 +505,9 @@ sub announce {
 sub _announce_tier {
     my ($s, $e, $tier) = @_;
     my @urls = grep {m[^https?://]} @{$tier->{urls}};
-    next if $tier->{urls}[0] !~ m[^https?://.+];
+    return if $tier->{failures} > 5;
+    return if $#{$tier->{urls}} < 0;                 # Empty tier?
+    return if $tier->{urls}[0] !~ m[^https?://.+];
     local $AnyEvent::HTTP::USERAGENT
         = 'AnyEvent::BitTorrent/' . $AnyEvent::BitTorrent::VERSION;
     http_get $tier->{urls}[0] . '?info_hash=' . sub {
@@ -564,7 +565,7 @@ has _choke_timer => (
     default  => sub {
         my $s = shift;
         AE::timer(
-            10, 40,
+            15, 45,
             sub {
                 return if $s->state ne 'active';
                 my @interested
@@ -593,29 +594,29 @@ has _fill_requests_timer => (
             15, 1,
             sub {    # XXX - Limit by time/bandwidth
                 return if $s->state ne 'active';
-                my @waiting = grep { scalar @{$_->{remote_requests} // []} }
+                my @waiting = grep { scalar @{$_->{remote_requests}} }
                     values %{$s->peers};
                 return if !@waiting;
-                my $p          = $waiting[rand $#waiting];
                 my $total_sent = 0;
-                while ($total_sent < 2**20 && @{$p->{remote_requests}}) {
-                    my $req = shift @{$p->{remote_requests}};
+                while (@waiting && $total_sent < 2**20) {
+                    my $p = splice(@waiting, rand @waiting, 1, ());
+                    while ($total_sent < 2**20 && @{$p->{remote_requests}}) {
+                        my $req = shift @{$p->{remote_requests}};
 
-                    # XXX - If piece is bad locally
-                    #          if remote supports fast ext
-                    #             send reject
-                    #          else
-                    #             simply return
-                    #       else...
-                    $p->{handle}->push_write(
-                               build_piece($req->[0],
-                                           $req->[1],
-                                           $s->_read(
-                                               $req->[0], $req->[1], $req->[2]
-                                           )
-                               )
-                    );
-                    $total_sent += $req->[2];
+                        # XXX - If piece is bad locally
+                        #          if remote supports fast ext
+                        #             send reject
+                        #          else
+                        #             simply return
+                        #       else...
+                        $p->{handle}->push_write(
+                                build_piece(
+                                    $req->[0], $req->[1],
+                                    $s->_read($req->[0], $req->[1], $req->[2])
+                                )
+                        );
+                        $total_sent += $req->[2];
+                    }
                 }
                 $s->_set_uploaded($s->uploaded + $total_sent);
             }
@@ -821,13 +822,12 @@ sub _on_read {
                             if $s->_write($index, 0, $piece) == length $piece;
                     }
                     vec($s->{bitfield}, $index, 1) = 1;
-                    $s->_trigger_hash_pass($index);
                     $s->_broadcast(
                         build_have($index),
                         sub {
-                            !scalar grep {$_} split '',
-                                substr unpack('b*', ~$_->{bitfield}), 0,
-                                $s->piece_count + 1;
+                            !!!index substr(unpack('b*', $_->{bitfield}),
+                                            0, $s->piece_count + 1),
+                                0, 0;
                         }
                     );
                     $s->announce('complete')
@@ -837,6 +837,7 @@ sub _on_read {
                     $s->_consider_peer($_)
                         for grep { $_->{local_interested} }
                         values %{$s->peers};
+                    $s->_trigger_hash_pass($index);
                 }
                 else {
                     $s->_trigger_hash_fail($index);
@@ -887,8 +888,11 @@ sub _broadcast {
 sub _consider_peer {    # Figure out whether or not we find a peer interesting
     my ($s, $p) = @_;
     return if $s->state ne 'active';
-    my $relevence = unpack('b*', $p->{bitfield}) & unpack('b*', $s->wanted);
-    my $interesting = (index(unpack('b*', $relevence), 1, 0) != -1) ? 1 : 0;
+    my $relevence = $p->{bitfield} & $s->wanted;
+    my $interesting
+        = (
+         index(substr(unpack('b*', $relevence), 0, $s->piece_count + 1), 1, 0)
+             != -1) ? 1 : 0;
     if ($interesting) {
         if (!$p->{local_interested}) {
             $p->{local_interested} = 1;
