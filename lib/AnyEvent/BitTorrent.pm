@@ -1,5 +1,5 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.3' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.4' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
@@ -65,6 +65,18 @@ has path => (
             ),
             required => 1
 );
+has reserved => (is         => 'ro',
+                 isa        => subtype(as 'Str' => where { length $_ == 8 }),
+                 lazy_build => 1
+);
+
+sub _build_reserved {
+    my $reserved = "\0" x 8;
+
+    #vec($reserved, 5, 8)  = 0x10;    # Ext Protocol
+    vec($reserved, 7, 8) = 0x04;    # Fast Ext
+    $reserved;
+}
 has peerid => (
     is  => 'ro',
     isa => subtype(
@@ -411,6 +423,10 @@ has peers => (
         #   local_requests    => ArrayRef[ArrayRef] # List of [i, o, l]
         #   timeout           => AnyEvent::timer
         #   keepalive         => AnyEvent::timer
+        #   local_allowed     => ArrayRef
+        #   remote_allowed    => ArrayRef
+        #   local_suggest     => ArrayRef
+        #   remote_suggest    => ArrayRef
         # }
 );
 sub _build_peers { {} }
@@ -433,7 +449,13 @@ sub _add_peer {
             sub {
                 $h->push_write(build_keepalive());
             }
-        )
+        ),
+
+        # BEP06
+        local_allowed  => [],
+        remote_allowed => [],
+        local_suggest  => [],
+        remote_suggest => []
     };
 }
 
@@ -673,10 +695,9 @@ sub _build_peer_timer {
                         my ($h, $host, $port, $retry) = @_;
                         $s->_add_peer($handle);
                         $handle->push_write(
-                                         build_handshake(
-                                             "\0\0\0\0\0\0\0\0", $s->infohash,
-                                             $s->peerid
-                                         )
+                                    build_handshake(
+                                        $s->reserved, $s->infohash, $s->peerid
+                                    )
                         );
                     },
                     on_eof => sub {
@@ -705,11 +726,11 @@ sub _on_read_incoming {
             if $packet->{payload}[1] ne $s->infohash;
         $s->peers->{$h}{peerid} = $packet->{payload}[2];
         $h->push_write(
-               build_handshake("\0\0\0\0\0\0\0\0", $s->infohash, $s->peerid));
-        $h->push_write(build_bitfield($s->bitfield));
+                     build_handshake($s->reserved, $s->infohash, $s->peerid));
+        $s->_send_bitfield($h);
         $s->peers->{$h}{timeout}
             = AE::timer(60, 0, sub { $s->_del_peer($h) });
-        $s->peers->{$h}{bitfield} = pack 'b*', "\0" x $s->piece_count;
+        $s->peers->{$h}{bitfield} = pack 'b*', (0 x $s->piece_count);
         $h->on_read(sub { $s->_on_read(@_) });
     }
     else {
@@ -737,10 +758,10 @@ sub _on_read {
             return $s->_del_peer($h)
                 if $packet->{payload}[1] ne $s->infohash;
             $s->peers->{$h}{peerid} = $packet->{payload}[2];
-            $h->push_write(build_bitfield($s->bitfield));
+            $s->_send_bitfield($h);
             $s->peers->{$h}{timeout}
                 = AE::timer(60, 0, sub { $s->_del_peer($h) });
-            $s->peers->{$h}{bitfield} = pack 'b*', "\0" x $s->piece_count;
+            $s->peers->{$h}{bitfield} = pack 'b*', (0 x $s->piece_count);
         }
         elsif ($packet->{type} == $INTERESTED) {
             $s->peers->{$h}{remote_interested} = 1;
@@ -870,12 +891,62 @@ sub _on_read {
 
             # Do nothing... as we don't have a DHT node. Yet?
         }
+        elsif ($packet->{type} == $SUGGEST) {
+            push @{$s->peers->{$h}{local_suggest}}, $packet->{payload};
+        }
+        elsif ($packet->{type} == $HAVE_ALL) {
+            $s->peers->{$h}{bitfield} = pack 'b*', (1 x $s->piece_count);
+            $s->_consider_peer($s->peers->{$h});
+            $s->peers->{$h}{timeout}
+                = AE::timer(120, 0, sub { $s->_del_peer($h) });
+        }
+        elsif ($packet->{type} == $HAVE_NONE) {
+            $s->peers->{$h}{bitfield} = pack 'b*', (0 x $s->piece_count);
+            $s->peers->{$h}{timeout}
+                = AE::timer(30, 0, sub { $s->_del_peer($h) });
+        }
+        elsif ($packet->{type} == $REJECT) {
+            my ($index, $offset, $length) = @{$packet->{payload}};
+            return    # XXX - error callback if this block is not in the queue
+                if !grep {
+                       $_->[0] == $index
+                    && $_->[1] == $offset
+                    && $_->[2] == $length
+                } @{$s->peers->{$h}{local_requests}};
+            $s->working_pieecs->{$index}{$offset}->[3] = ();
+            $s->peers->{$h}{local_requests} = [
+                grep {
+                           ($_->[0] != $index)
+                        || ($_->[1] != $offset)
+                        || ($_->[2] != $length)
+                    } @{$s->peers->{$h}{local_requests}}
+            ];
+            $s->peers->{$h}{timeout}
+                = AE::timer(30, 0, sub { $s->_del_peer($h) });
+        }
+        elsif ($packet->{type} == $ALLOWED_FAST) {
+            push @{$s->peers->{$h}{local_allowed}}, $packet->{payload};
+        }
         else {
-            warn 'Unhandled packet: ' . dd $packet;
+            use Data::Dump qw[pp];
+            die 'Unhandled packet: ' . pp $packet;
         }
         last
             if 5 > length($h->rbuf // '');    # Min size for protocol
     }
+}
+
+sub _send_bitfield {
+    my ($s, $h) = @_;
+    if (vec($s->peers->{$h}{reserved}, 7, 1) & 0x04) {
+        if ($s->seed) { return $h->push_write(build_haveall()) }
+        elsif ($s->bitfield() !~ m[[^\0]]) {
+            return $h->push_write(build_havenone());
+        }
+    }
+
+    # XXX - If it's cheaper to send HAVE packets than a full BITFIELD, do it
+    $h->push_write(build_bitfield($s->bitfield));
 }
 
 sub _broadcast {
@@ -888,6 +959,7 @@ sub _broadcast {
 sub _consider_peer {    # Figure out whether or not we find a peer interesting
     my ($s, $p) = @_;
     return if $s->state ne 'active';
+    return if $s->complete;
     my $relevence = $p->{bitfield} & $s->wanted;
     my $interesting
         = (
@@ -1336,12 +1408,13 @@ subclass it to add more advanced functionality. Hint, hint!
 =head2 What is currently supported?
 
 Basic stuff. We can make and handle piece requests. Deal with cancels,
-disconnect idle peers, unchoke folks. Normal... stuff. HTTP trackers.
+disconnect idle peers, unchoke folks, fast extensions, file download
+priorities. Normal... stuff. HTTP trackers.
 
 =head2 What will probably be supported in the future?
 
-DHT (which will likely be in a separate dist), fast extensions, IPv6 stuff,
-file download priorities... I'll get around to those.
+DHT (which will likely be in a separate dist), IPv6 stuff... I'll get around
+to those.
 
 Long term, UDP trackers may be supported.
 
