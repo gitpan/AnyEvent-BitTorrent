@@ -1,3 +1,8 @@
+Version 0.1.5 | Half past one on December 29th, 2011 | 63d7040198
+
+    Protocol/Behavioral Changes:
+     * Choke packets from fast peers no longer clear outstanding requests
+
 Version 0.1.4 | Seven something on December 27th, 2011 | 407b3316ef
 
     Protocol/Behavioral Changes:

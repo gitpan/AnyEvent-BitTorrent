@@ -1,5 +1,5 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.4' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.5' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
@@ -774,10 +774,12 @@ sub _on_read {
         }
         elsif ($packet->{type} == $CHOKE) {
             $s->peers->{$h}{local_choked} = 1;
-            for my $req (@{$s->peers->{$h}{local_requests}}) {
-                $s->working_pieces->{$req->[0]}{$req->[1]}[3] = ()
-                    unless
-                    defined $s->working_pieces->{$req->[0]}{$req->[1]}[4];
+            if (!(vec($s->peers->{$h}{reserved}, 7, 1) & 0x04)) {
+                for my $req (@{$s->peers->{$h}{local_requests}}) {
+                    $s->working_pieces->{$req->[0]}{$req->[1]}[3] = ()
+                        unless
+                        defined $s->working_pieces->{$req->[0]}{$req->[1]}[4];
+                }
             }
             $s->_consider_peer($s->peers->{$h});
         }
@@ -928,8 +930,9 @@ sub _on_read {
             push @{$s->peers->{$h}{local_allowed}}, $packet->{payload};
         }
         else {
-            use Data::Dump qw[pp];
-            die 'Unhandled packet: ' . pp $packet;
+
+            # use Data::Dump qw[pp];
+            # die 'Unhandled packet: ' . pp $packet;
         }
         last
             if 5 > length($h->rbuf // '');    # Min size for protocol

@@ -23,7 +23,7 @@ name: AnyEvent-BitTorrent
 provides:
   AnyEvent::BitTorrent:
     file: lib/AnyEvent/BitTorrent.pm
-    version: v0.1.4
+    version: v0.1.5
 requires:
   Any::Moose: 0
   AnyEvent: 0
@@ -37,7 +37,7 @@ requires:
   File::Path: 0
   File::Spec: 0
   Module::Build: 0.38
-  Net::BitTorrent::Protocol: v0.9.1
+  Net::BitTorrent::Protocol: v1.0.0
   Scalar::Util: 0
   perl: v5.10.0
 resources:
@@ -45,4 +45,4 @@ resources:
   license: http://www.perlfoundation.org/artistic_license_2_0
   repository: git://github.com/sanko/anyevent-bittorrent.git
   x_ChangeLog: http://github.com/sanko/anyevent-bittorrent/commits/
-version: v0.1.4
+version: v0.1.5

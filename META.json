@@ -46,7 +46,7 @@
             "File::Path" : 0,
             "File::Spec" : 0,
             "Module::Build" : "0.38",
-            "Net::BitTorrent::Protocol" : "v0.9.1",
+            "Net::BitTorrent::Protocol" : "v1.0.0",
             "Scalar::Util" : 0,
             "perl" : "v5.10.0"
          }
@@ -55,7 +55,7 @@
    "provides" : {
       "AnyEvent::BitTorrent" : {
          "file" : "lib/AnyEvent/BitTorrent.pm",
-         "version" : "v0.1.4"
+         "version" : "v0.1.5"
       }
    },
    "release_status" : "stable",
@@ -71,5 +71,5 @@
       },
       "x_ChangeLog" : "http://github.com/sanko/anyevent-bittorrent/commits/"
    },
-   "version" : "v0.1.4"
+   "version" : "v0.1.5"
 }
