@@ -4,7 +4,7 @@
       "Sanko Robinson <sanko@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.38, CPAN::Meta::Converter version 2.112621",
+   "generated_by" : "Module::Build version 0.4, CPAN::Meta::Converter version 2.120630",
    "keywords" : [
       "BitTorrent",
       "AnyEvent"
@@ -20,34 +20,34 @@
    "prereqs" : {
       "build" : {
          "requires" : {
-            "File::Temp" : 0,
+            "File::Temp" : "0",
             "Module::Build" : "0.38",
-            "Test::More" : 0,
+            "Test::More" : "0",
             "perl" : "v5.10.0"
          }
       },
       "configure" : {
          "requires" : {
-            "File::Find" : 0,
+            "File::Find" : "0",
             "Module::Build" : "0.38"
          }
       },
       "runtime" : {
          "requires" : {
-            "Any::Moose" : 0,
-            "AnyEvent" : 0,
-            "AnyEvent::HTTP" : 0,
-            "AnyEvent::Handle" : 0,
-            "AnyEvent::Socket" : 0,
-            "Carp" : 0,
-            "Digest::SHA" : 0,
-            "Exporter" : 0,
-            "Fcntl" : 0,
-            "File::Path" : 0,
-            "File::Spec" : 0,
+            "Any::Moose" : "0",
+            "AnyEvent" : "0",
+            "AnyEvent::HTTP" : "0",
+            "AnyEvent::Handle" : "0",
+            "AnyEvent::Socket" : "0",
+            "Carp" : "0",
+            "Digest::SHA" : "0",
+            "Exporter" : "0",
+            "Fcntl" : "0",
+            "File::Path" : "0",
+            "File::Spec" : "0",
             "Module::Build" : "0.38",
             "Net::BitTorrent::Protocol" : "v1.0.0",
-            "Scalar::Util" : 0,
+            "Scalar::Util" : "0",
             "perl" : "v5.10.0"
          }
       }
@@ -55,7 +55,7 @@
    "provides" : {
       "AnyEvent::BitTorrent" : {
          "file" : "lib/AnyEvent/BitTorrent.pm",
-         "version" : "v0.1.5"
+         "version" : "v0.1.6"
       }
    },
    "release_status" : "stable",
@@ -71,5 +71,5 @@
       },
       "x_ChangeLog" : "http://github.com/sanko/anyevent-bittorrent/commits/"
    },
-   "version" : "v0.1.5"
+   "version" : "v0.1.6"
 }

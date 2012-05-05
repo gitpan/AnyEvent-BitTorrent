@@ -1,5 +1,5 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.5' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.6' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
@@ -99,7 +99,7 @@ has peerid => (
                       ->[rand(66)]
                       } 1 .. 7
                  ),
-                 [qw[KaiLi April]]->[rand 2]
+                 [qw[KaiLi April Aaron]]->[rand 3]
              )
             )
         );
@@ -915,7 +915,7 @@ sub _on_read {
                     && $_->[1] == $offset
                     && $_->[2] == $length
                 } @{$s->peers->{$h}{local_requests}};
-            $s->working_pieecs->{$index}{$offset}->[3] = ();
+            $s->working_pieces->{$index}{$offset}->[3] = ();
             $s->peers->{$h}{local_requests} = [
                 grep {
                            ($_->[0] != $index)

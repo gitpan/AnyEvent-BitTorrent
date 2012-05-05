@@ -1,3 +1,12 @@
+Version 0.1.6 | Late evening on May 4th, 2012 | c32e8a7519
+
+    Resolved Issues/Bug Fixes:
+     * It's spelled "pieces"... oy
+
+    Documentation/Sample Code/Test Suite:
+     * Resolves issue #1
+     * Switch swarm tests to torrent by CC-friendly, punk band Sick of Sarah
+
 Version 0.1.5 | Half past one on December 29th, 2011 | 63d7040198
 
     Protocol/Behavioral Changes:
