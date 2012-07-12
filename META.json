@@ -4,7 +4,7 @@
       "Sanko Robinson <sanko@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.4, CPAN::Meta::Converter version 2.120630",
+   "generated_by" : "Module::Build version 0.4, CPAN::Meta::Converter version 2.120921",
    "keywords" : [
       "BitTorrent",
       "AnyEvent"
@@ -55,7 +55,7 @@
    "provides" : {
       "AnyEvent::BitTorrent" : {
          "file" : "lib/AnyEvent/BitTorrent.pm",
-         "version" : "v0.1.6"
+         "version" : "v0.1.7"
       }
    },
    "release_status" : "stable",
@@ -71,5 +71,5 @@
       },
       "x_ChangeLog" : "http://github.com/sanko/anyevent-bittorrent/commits/"
    },
-   "version" : "v0.1.6"
+   "version" : "v0.1.7"
 }

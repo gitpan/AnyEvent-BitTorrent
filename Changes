@@ -1,3 +1,14 @@
+Version 0.1.7 | Early morning, July 12th, 2012 | fc6b65c48b
+
+    Protocol/Behavioral Changes:
+     * Small steps forward on IPv6 support
+
+    Documentation/Sample Code/Test Suite:
+     * Document $client->trackers( )
+
+    Notes:
+     * London, baby!
+
 Version 0.1.6 | Late evening on May 4th, 2012 | c32e8a7519
 
     Resolved Issues/Bug Fixes:
