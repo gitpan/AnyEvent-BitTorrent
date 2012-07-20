@@ -1,5 +1,5 @@
 package AnyEvent::BitTorrent;
-{ $AnyEvent::BitTorrent::VERSION = 'v0.1.7' }
+{ $AnyEvent::BitTorrent::VERSION = 'v0.1.8' }
 use AnyEvent;
 use AnyEvent::Handle;
 use AnyEvent::Socket;
@@ -90,9 +90,9 @@ has peerid => (
         pack(
             'a20',
             (sprintf(
-                 '-AB%01d%02d%1s-%7s%-5s',
-                 ($AnyEvent::BitTorrent::VERSION =~ m[^v(\d+)\.(\d+)]),
-                 ($AnyEvent::BitTorrent::VERSION =~ m[\_] ? 'U' : 'S'),
+                 '-AB%01d%01d%01d%1s-%7s%-5s',
+                 ($AnyEvent::BitTorrent::VERSION =~ m[^v(\d+)\.(\d+)\.(\d+)]),
+                 ($AnyEvent::BitTorrent::VERSION =~ m[[^\d\.^v]] ? 'U' : 'S'),
                  (join '',
                   map {
                       ['A' .. 'Z', 'a' .. 'z', 0 .. 9, qw[- . _ ~]]
@@ -163,7 +163,8 @@ has metadata => (is         => 'ro',
 
 sub _build_metadata {
     my $s = shift;
-    return if ref $s ne __PACKAGE__;    # Applying roles makes deep rec
+
+    #return if ref $s ne __PACKAGE__;    # Applying roles makes deep rec
     open my $fh, '<', $s->path;
     sysread $fh, my $raw, -s $fh;
     my $metadata = bdecode $raw;
@@ -447,7 +448,7 @@ sub _add_peer {
         keepalive         => AE::timer(
             30, 120,
             sub {
-                $h->push_write(build_keepalive());
+                $s->_send_encrypted($h, build_keepalive());
             }
         ),
 
@@ -455,7 +456,10 @@ sub _add_peer {
         local_allowed  => [],
         remote_allowed => [],
         local_suggest  => [],
-        remote_suggest => []
+        remote_suggest => [],
+
+        #
+        encryption => '?'
     };
 }
 
@@ -604,7 +608,7 @@ has _choke_timer => (
                 # XXX - Limit the number of upload slots
                 for my $p (@interested) {
                     $p->{remote_choked} = 0;
-                    $p->{handle}->push_write(build_unchoke());
+                    $s->_send_encrypted($p->{handle}, build_unchoke());
                 }
 
                 # XXX - Send choke to random peer
@@ -623,7 +627,8 @@ has _fill_requests_timer => (
             15, 1,
             sub {    # XXX - Limit by time/bandwidth
                 return if $s->state ne 'active';
-                my @waiting = grep { scalar @{$_->{remote_requests}} }
+                my @waiting
+                    = grep { defined && scalar @{$_->{remote_requests}} }
                     values %{$s->peers};
                 return if !@waiting;
                 my $total_sent = 0;
@@ -638,7 +643,8 @@ has _fill_requests_timer => (
                         #          else
                         #             simply return
                         #       else...
-                        $p->{handle}->push_write(
+                        $s->_send_encrypted(
+                                $p->{handle},
                                 build_piece(
                                     $req->[0], $req->[1],
                                     $s->_read($req->[0], $req->[1], $req->[2])
@@ -705,11 +711,7 @@ sub _build_peer_timer {
                     on_connect => sub {
                         my ($h, $host, $port, $retry) = @_;
                         $s->_add_peer($handle);
-                        $handle->push_write(
-                                    build_handshake(
-                                        $s->reserved, $s->infohash, $s->peerid
-                                    )
-                        );
+                        $s->_send_handshake($handle);
                     },
                     on_eof => sub {
                         my $h = shift;
@@ -725,6 +727,8 @@ sub _build_peer_timer {
 sub _on_read_incoming {
     my ($s, $h) = @_;
     $h->rbuf // return;
+
+    # XXX - Handle things if the stream is encrypted
     my $packet = parse_packet(\$h->rbuf);
     return if !$packet;
     if (defined $packet->{error}) {
@@ -736,18 +740,14 @@ sub _on_read_incoming {
         return $s->_del_peer($h)
             if $packet->{payload}[1] ne $s->infohash;
         $s->peers->{$h}{peerid} = $packet->{payload}[2];
-        $h->push_write(
-                     build_handshake($s->reserved, $s->infohash, $s->peerid));
+        $s->_send_handshake($h);
         $s->_send_bitfield($h);
         $s->peers->{$h}{timeout}
             = AE::timer(60, 0, sub { $s->_del_peer($h) });
         $s->peers->{$h}{bitfield} = pack 'b*', (0 x $s->piece_count);
         $h->on_read(sub { $s->_on_read(@_) });
     }
-    else {
-
-        #...;
-        # Assume encrypted
+    else {    # This should never happen
     }
     1;
 }
@@ -953,20 +953,22 @@ sub _on_read {
 sub _send_bitfield {
     my ($s, $h) = @_;
     if (vec($s->peers->{$h}{reserved}, 7, 1) & 0x04) {
-        if ($s->seed) { return $h->push_write(build_haveall()) }
+        if ($s->seed) {
+            return $s->_send_encrypted($h, build_haveall());
+        }
         elsif ($s->bitfield() !~ m[[^\0]]) {
-            return $h->push_write(build_havenone());
+            return $s->_send_encrypted($h, build_havenone());
         }
     }
 
     # XXX - If it's cheaper to send HAVE packets than a full BITFIELD, do it
-    $h->push_write(build_bitfield($s->bitfield));
+    $s->_send_encrypted($h, build_bitfield($s->bitfield));
 }
 
 sub _broadcast {
     my ($s, $data, $qualifier) = @_;
     $qualifier //= sub {1};
-    $_->{handle}->push_write($data)
+    $s->_send_encrypted($_->{handle}, $data)
         for grep { $qualifier->() } values %{$s->peers};
 }
 
@@ -982,13 +984,13 @@ sub _consider_peer {    # Figure out whether or not we find a peer interesting
     if ($interesting) {
         if (!$p->{local_interested}) {
             $p->{local_interested} = 1;
-            $p->{handle}->push_write(build_interested());
+            $s->_send_encrypted($p->{handle}, build_interested());
         }
     }
     else {
         if ($p->{local_interested}) {
             $p->{local_interested} = 0;
-            $p->{handle}->push_write(build_not_interested());
+            $s->_send_encrypted($p->{handle}, build_not_interested());
         }
     }
 }
@@ -1062,7 +1064,8 @@ sub _request_pieces {
 
         # XXX - Limit to x req per peer (future: based on bandwidth)
         #warn sprintf 'Requesting %d, %d, %d', $index, $offset, $_block_size;
-        $p->{handle}->push_write(build_request($index, $offset, $_block_size))
+        $s->_send_encrypted($p->{handle},
+                            build_request($index, $offset, $_block_size))
             ;                 # XXX - len for last piece
         $s->working_pieces->{$index}{$offset} = [
             $index, $offset,
@@ -1073,7 +1076,7 @@ sub _request_pieces {
                 sub {
                     $p // return;
                     $p->{handle} // return;
-                    $p->{handle}->push_write(
+                    $s->_send_encrypted($p->{handle},
                                  build_cancel($index, $offset, $_block_size));
                     $s->working_pieces->{$index}{$offset}[3] = ();
                     $p->{local_requests} = [
@@ -1154,7 +1157,22 @@ sub BUILD {
     $s->paused if $s->state eq 'paused';
 }
 
-#
+# Testing stuff goes here
+sub _send_encrypted {
+    my ($s, $h, $packet) = @_;
+
+    # XXX - Currently doesn't do anything and may never do anything
+    return $h->push_write($packet);
+}
+
+sub _send_handshake {
+    my ($s, $h) = @_;
+
+    # XXX - Send encrypted handshake if encryption status is unknown or true
+    $h->push_write(build_handshake($s->reserved, $s->infohash, $s->peerid));
+}
+
+# Wrap everything up
 __PACKAGE__->meta->make_immutable();
 no Any::Moose;
 no Any::Moose '::Util::TypeConstraints';
@@ -1188,6 +1206,16 @@ and will be subject to change before C<v1.0.0>. Here's the public interface as
 of this version:
 
 =head2 C<new( ... )>
+
+    my $c = AnyEvent::BitTorrent->(
+        path         => 'some/legal.torrent',
+        basedir      => './storage/',
+        port         => 6881,
+        on_hash_pass => sub { ... },
+        on_hash_fail => sub { ... },
+        state        => 'stopped',
+        piece_cache  => $quick_restore
+    );
 
 This constructor understands the following arguments:
 
@@ -1250,7 +1278,7 @@ call L<C<start( )>|/"start( )">.
 
 =item C<piece_cache>
 
-This is the index returned by L<C<piece_cache( )>|/"piece_cache( )"> in a
+This is the index list returned by L<C<piece_cache( )>|/"piece_cache( )"> in a
 previous instance. Using this should make a complete resume system a trivial
 task.
 

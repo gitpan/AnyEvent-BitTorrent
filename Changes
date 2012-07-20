@@ -1,3 +1,8 @@
+Version 0.1.8 | After supper on July 20th, 2012 | f35ec1c774
+
+    API Changes/Compatibility Information:
+     * Fix stupid dev code that prevented subclasses of AB from working
+
 Version 0.1.7 | Early morning, July 12th, 2012 | fc6b65c48b
 
     Protocol/Behavioral Changes:
