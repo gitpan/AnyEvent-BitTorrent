@@ -4,7 +4,7 @@
       "Sanko Robinson <sanko@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.4, CPAN::Meta::Converter version 2.120921",
+   "generated_by" : "Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921",
    "keywords" : [
       "BitTorrent",
       "AnyEvent"
@@ -55,7 +55,7 @@
    "provides" : {
       "AnyEvent::BitTorrent" : {
          "file" : "lib/AnyEvent/BitTorrent.pm",
-         "version" : "v0.1.8"
+         "version" : "v0.1.9"
       }
    },
    "release_status" : "stable",
@@ -64,12 +64,12 @@
          "web" : "http://github.com/sanko/anyevent-bittorrent/issues"
       },
       "license" : [
-         "http://www.perlfoundation.org/artistic_license_2_0"
+         "http://opensource.org/licenses/artistic-license-2.0.php"
       ],
       "repository" : {
          "url" : "git://github.com/sanko/anyevent-bittorrent.git"
       },
       "x_ChangeLog" : "http://github.com/sanko/anyevent-bittorrent/commits/"
    },
-   "version" : "v0.1.8"
+   "version" : "v0.1.9"
 }

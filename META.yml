@@ -1,5 +1,5 @@
 ---
-abstract: Yet Another BitTorrent Client Module
+abstract: 'Yet Another BitTorrent Client Module'
 author:
   - 'Sanko Robinson <sanko@cpan.org>'
 build_requires:
@@ -11,7 +11,7 @@ configure_requires:
   File::Find: 0
   Module::Build: 0.38
 dynamic_config: 1
-generated_by: 'Module::Build version 0.4, CPAN::Meta::Converter version 2.120921'
+generated_by: 'Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921'
 keywords:
   - BitTorrent
   - AnyEvent
@@ -23,7 +23,7 @@ name: AnyEvent-BitTorrent
 provides:
   AnyEvent::BitTorrent:
     file: lib/AnyEvent/BitTorrent.pm
-    version: v0.1.8
+    version: v0.1.9
 requires:
   Any::Moose: 0
   AnyEvent: 0
@@ -42,7 +42,7 @@ requires:
   perl: v5.10.0
 resources:
   bugtracker: http://github.com/sanko/anyevent-bittorrent/issues
-  license: http://www.perlfoundation.org/artistic_license_2_0
+  license: http://opensource.org/licenses/artistic-license-2.0.php
   repository: git://github.com/sanko/anyevent-bittorrent.git
   x_ChangeLog: http://github.com/sanko/anyevent-bittorrent/commits/
-version: v0.1.8
+version: v0.1.9
