@@ -11,7 +11,7 @@ configure_requires:
   File::Find: 0
   Module::Build: 0.38
 dynamic_config: 1
-generated_by: 'Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921'
+generated_by: 'Module::Build version 0.4007, CPAN::Meta::Converter version 2.132510'
 keywords:
   - BitTorrent
   - AnyEvent
@@ -23,9 +23,8 @@ name: AnyEvent-BitTorrent
 provides:
   AnyEvent::BitTorrent:
     file: lib/AnyEvent/BitTorrent.pm
-    version: v0.2.0
+    version: v0.2.1
 requires:
-  Any::Moose: 0
   AnyEvent: 0
   AnyEvent::HTTP: 0
   AnyEvent::Handle: 0
@@ -37,12 +36,14 @@ requires:
   File::Path: 0
   File::Spec: 0
   Module::Build: 0.38
+  Moo: 0
   Net::BitTorrent::Protocol: v1.0.0
   Scalar::Util: 0
+  Type::Tiny: 0
   perl: v5.16.0
 resources:
+  ChangeLog: http://github.com/sanko/anyevent-bittorrent/commits/
   bugtracker: http://github.com/sanko/anyevent-bittorrent/issues
-  license: http://opensource.org/licenses/artistic-license-2.0.php
+  license: http://www.perlfoundation.org/artistic_license_2_0
   repository: git://github.com/sanko/anyevent-bittorrent.git
-  x_ChangeLog: http://github.com/sanko/anyevent-bittorrent/commits/
-version: v0.2.0
+version: v0.2.1
