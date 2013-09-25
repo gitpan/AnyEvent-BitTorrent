@@ -23,7 +23,7 @@ name: AnyEvent-BitTorrent
 provides:
   AnyEvent::BitTorrent:
     file: lib/AnyEvent/BitTorrent.pm
-    version: v0.2.1
+    version: v0.2.2
 requires:
   AnyEvent: 0
   AnyEvent::HTTP: 0
@@ -46,4 +46,4 @@ resources:
   bugtracker: http://github.com/sanko/anyevent-bittorrent/issues
   license: http://www.perlfoundation.org/artistic_license_2_0
   repository: git://github.com/sanko/anyevent-bittorrent.git
-version: v0.2.1
+version: v0.2.2

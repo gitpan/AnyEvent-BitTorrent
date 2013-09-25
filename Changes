@@ -1,3 +1,8 @@
+Version 0.2.2 | Half past midnight on September 25th, 2013 | f46c4f1
+
+    API Changes/Compatibility Information:
+     * Fix Moo vs Any::Moose derp
+
 Version 0.2.1 | Early evening, September 23rd, 2013 | ac05d7b
 
     API Changes/Compatibility Information:
