@@ -1,16 +1,18 @@
-Build.PL
 Changes
-eg/simple_client.pl
-INSTALL
-lib/AnyEvent/BitTorrent.pm
 LICENSE
-MANIFEST			This list of files
-META.json
-META.yml
-README
+README.md
+TODO
+cpanfile
+eg/simple_client.pl
+lib/AnyEvent/BitTorrent.pm
+minil.toml
 t/000_tests/001_global.t
 t/000_tests/002_local.t
+t/00_compile.t
 t/800_utils/Tracker.pm
 t/800_utils/Tracker/HTTP.pm
-'t/900_data/Sick of Sarah - 2205 BitTorrent Edition.torrent'
-TODO
+t/900_data/Sick of Sarah - 2205 BitTorrent Edition.torrent
+Build.PL
+META.json
+META.yml
+MANIFEST

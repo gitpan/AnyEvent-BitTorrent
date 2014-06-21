@@ -1,49 +1,47 @@
 ---
 abstract: 'Yet Another BitTorrent Client Module'
 author:
-  - 'Sanko Robinson <sanko@cpan.org>'
+  - 'Sanko Robinson <sanko@cpan.org> - http://sankorobinson.com/'
 build_requires:
-  File::Temp: 0
-  Module::Build: 0.38
-  Test::More: 0
-  perl: v5.16.0
+  File::Temp: '0'
+  Test::More: '0.98'
 configure_requires:
-  File::Find: 0
-  Module::Build: 0.38
-dynamic_config: 1
-generated_by: 'Module::Build version 0.4007, CPAN::Meta::Converter version 2.132510'
-keywords:
-  - BitTorrent
-  - AnyEvent
+  Module::Build::Tiny: '0.035'
+dynamic_config: 0
+generated_by: 'Minilla/v1.1.0, CPAN::Meta::Converter version 2.141170'
 license: artistic_2
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
-  version: 1.4
+  version: '1.4'
 name: AnyEvent-BitTorrent
+no_index:
+  directory:
+    - t
+    - xt
+    - inc
+    - share
+    - eg
+    - examples
+    - author
+    - builder
 provides:
   AnyEvent::BitTorrent:
     file: lib/AnyEvent/BitTorrent.pm
-    version: v0.2.3
+    version: v0.2.4
+recommends:
+  Data::Dump: '0'
 requires:
-  AnyEvent: 0
-  AnyEvent::HTTP: 0
-  AnyEvent::Handle: 0
-  AnyEvent::Socket: 0
-  Carp: 0
-  Digest::SHA: 0
-  Exporter: 0
-  Fcntl: 0
-  File::Path: 0
-  File::Spec: 0
-  Module::Build: 0.38
-  Moo: 0
-  Net::BitTorrent::Protocol: v1.0.0
-  Scalar::Util: 0
-  Type::Tiny: 0
-  perl: v5.16.0
+  AnyEvent: '0'
+  AnyEvent::HTTP: '0'
+  Digest::SHA: '0'
+  Moo: '0'
+  Net::BitTorrent::Protocol: '0'
+  Scalar::Util: '0'
+  Type::Tiny: '0'
+  Types::Standard: '0'
+  perl: '5.010'
 resources:
-  ChangeLog: http://github.com/sanko/anyevent-bittorrent/commits/
-  bugtracker: http://github.com/sanko/anyevent-bittorrent/issues
-  license: http://www.perlfoundation.org/artistic_license_2_0
-  repository: git://github.com/sanko/anyevent-bittorrent.git
-version: v0.2.3
+  bugtracker: https://github.com/sanko/anyevent-bittorrent/issues
+  homepage: https://github.com/sanko/anyevent-bittorrent
+  repository: https://github.com/sanko/anyevent-bittorrent.git
+version: v0.2.4

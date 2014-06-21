@@ -1,14 +1,10 @@
 {
    "abstract" : "Yet Another BitTorrent Client Module",
    "author" : [
-      "Sanko Robinson <sanko@cpan.org>"
+      "Sanko Robinson <sanko@cpan.org> - http://sankorobinson.com/"
    ],
-   "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.4007, CPAN::Meta::Converter version 2.132510",
-   "keywords" : [
-      "BitTorrent",
-      "AnyEvent"
-   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Minilla/v1.1.0",
    "license" : [
       "artistic_2"
    ],
@@ -17,60 +13,72 @@
       "version" : "2"
    },
    "name" : "AnyEvent-BitTorrent",
+   "no_index" : {
+      "directory" : [
+         "t",
+         "xt",
+         "inc",
+         "share",
+         "eg",
+         "examples",
+         "author",
+         "builder"
+      ]
+   },
    "prereqs" : {
-      "build" : {
-         "requires" : {
-            "File::Temp" : "0",
-            "Module::Build" : "0.38",
-            "Test::More" : "0",
-            "perl" : "v5.16.0"
-         }
-      },
       "configure" : {
          "requires" : {
-            "File::Find" : "0",
-            "Module::Build" : "0.38"
+            "Module::Build::Tiny" : "0.035"
+         }
+      },
+      "develop" : {
+         "requires" : {
+            "Test::CPAN::Meta" : "0",
+            "Test::MinimumVersion::Fast" : "0.04",
+            "Test::PAUSE::Permissions" : "0.04",
+            "Test::Pod" : "1.41",
+            "Test::Spellunker" : "v0.2.7"
          }
       },
       "runtime" : {
+         "recommends" : {
+            "Data::Dump" : "0"
+         },
          "requires" : {
             "AnyEvent" : "0",
             "AnyEvent::HTTP" : "0",
-            "AnyEvent::Handle" : "0",
-            "AnyEvent::Socket" : "0",
-            "Carp" : "0",
             "Digest::SHA" : "0",
-            "Exporter" : "0",
-            "Fcntl" : "0",
-            "File::Path" : "0",
-            "File::Spec" : "0",
-            "Module::Build" : "0.38",
             "Moo" : "0",
-            "Net::BitTorrent::Protocol" : "v1.0.0",
+            "Net::BitTorrent::Protocol" : "0",
             "Scalar::Util" : "0",
             "Type::Tiny" : "0",
-            "perl" : "v5.16.0"
+            "Types::Standard" : "0",
+            "perl" : "5.010"
+         }
+      },
+      "test" : {
+         "requires" : {
+            "File::Temp" : "0",
+            "Test::More" : "0.98"
          }
       }
    },
    "provides" : {
       "AnyEvent::BitTorrent" : {
          "file" : "lib/AnyEvent/BitTorrent.pm",
-         "version" : "v0.2.3"
+         "version" : "v0.2.4"
       }
    },
    "release_status" : "stable",
    "resources" : {
       "bugtracker" : {
-         "web" : "http://github.com/sanko/anyevent-bittorrent/issues"
+         "web" : "https://github.com/sanko/anyevent-bittorrent/issues"
       },
-      "license" : [
-         "http://www.perlfoundation.org/artistic_license_2_0"
-      ],
+      "homepage" : "https://github.com/sanko/anyevent-bittorrent",
       "repository" : {
-         "url" : "git://github.com/sanko/anyevent-bittorrent.git"
-      },
-      "x_ChangeLog" : "http://github.com/sanko/anyevent-bittorrent/commits/"
+         "url" : "https://github.com/sanko/anyevent-bittorrent.git",
+         "web" : "https://github.com/sanko/anyevent-bittorrent"
+      }
    },
-   "version" : "v0.2.3"
+   "version" : "v0.2.4"
 }
