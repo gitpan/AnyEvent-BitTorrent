@@ -11,7 +11,7 @@ t/000_tests/002_local.t
 t/00_compile.t
 t/800_utils/Tracker.pm
 t/800_utils/Tracker/HTTP.pm
-t/900_data/Sick of Sarah - 2205 BitTorrent Edition.torrent
+t/900_data/kubuntu-active-13.04-desktop-i386.iso.torrent
 Build.PL
 META.json
 META.yml
